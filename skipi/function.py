@@ -54,10 +54,13 @@ class Function(object):
         :param domain: list of points where the function is defined, equidistantly spaced!
         :param function_callable: callable function to evaluate this Function.
         """
-        if not self.is_evenly_spaced_domain(domain):
+        if not self._is_evenly_spaced_domain(domain):
             raise RuntimeWarning("Given domain is not equidistantly spaced")
 
-        self._dom = numpy.array(domain)
+        if not isinstance(domain, numpy.ndarray):
+            self._dom = numpy.array(domain)
+        else:
+            self._dom = domain
 
         if not callable(function_callable):
             raise RuntimeError("function must be callable")
@@ -68,7 +71,7 @@ class Function(object):
         self._f = function_callable
 
     @classmethod
-    def is_evenly_spaced_domain(cls, domain):
+    def _is_evenly_spaced_domain(cls, domain):
         """
         Checks whether the given domain (list) is evenly (equdistantly) spaced.
 
@@ -82,6 +85,9 @@ class Function(object):
             return True
 
         return False
+
+    def is_evenly_spaced(self):
+        return True
 
     def copy(self):
         """
@@ -116,6 +122,11 @@ class Function(object):
 
         f = self._f
         return Function(dom, lambda x: f(x - offset))
+
+    def scale_domain(self, factor):
+        dom = factor * self._dom
+        f = self._f
+        return Function(dom, lambda x: f(x/factor))
 
     def apply(self, function):
         """
@@ -370,13 +381,19 @@ class Function(object):
 
 class UnevenlySpacedFunction(Function):
     @classmethod
-    def is_evenly_spaced_domain(cls, domain):
+    def _is_evenly_spaced_domain(cls, domain):
         return True
+
+    def is_evenly_spaced(self):
+        return False
+
+    def get_dx(self, domain):
+        return numpy.diff(domain)
 
 
 class Integral(Function):
     @classmethod
-    def to_function(cls, domain, feval, C=0):
+    def to_function(cls, domain, feval, C=0, evenly_spaced=True):
         r"""
         Returns the integral function starting from the first element of domain, i.e.
         ::math..
@@ -386,17 +403,21 @@ class Integral(Function):
         :param domain:
         :param feval:
         :param C: integral constant (can be arbitrary)
+        :param evenly_spaced: Whether the domain is evenly spaced or not
         :return:
         """
         dx = cls.get_dx(domain)
-        Feval = scipy.integrate.cumtrapz(y=evaluate(domain, feval), dx=dx, initial=0) + C
-
-        return Function.to_function(domain, Feval)
+        if evenly_spaced:
+            Feval = scipy.integrate.cumtrapz(y=evaluate(domain, feval), dx=dx, initial=0) + C
+            return Function.to_function(domain, Feval)
+        else:
+            Feval = scipy.integrate.cumtrapz(y=evaluate(domain, feval), x=domain, initial=0) + C
+            return UnevenlySpacedFunction.to_function(domain, Feval)
 
     @classmethod
     def from_function(cls, fun: Function, x0=None, C=0):
         if x0 is None:
-            return cls.to_function(fun.get_domain(), fun, C=C)
+            return cls.to_function(fun.get_domain(), fun, C=C, evenly_spaced=fun.is_evenly_spaced())
         else:
             F = cls.from_function(fun)
             return F - F(x0)
@@ -424,7 +445,10 @@ class Integral(Function):
             fun = fun.vremesh((x0, x1))
 
         dx = cls.get_dx(fun.get_domain())
-        return scipy.integrate.trapz(fun.eval(), dx=dx)
+        if fun.is_evenly_spaced():
+            return scipy.integrate.trapz(fun.eval(), dx=dx)
+        else:
+            return scipy.integrate.trapz(fun.eval(), x=fun.get_domain())
 
 
 # Just renaming

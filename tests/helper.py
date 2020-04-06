@@ -1,3 +1,4 @@
+import numpy
 from numpy import heaviside
 
 
@@ -30,3 +31,7 @@ def assert_equal_relative(f1, f2, TOL=1e-10, domain=None):
 
 def indicator(x_min, x_max):
     return lambda x: heaviside(x - x_min, 0) * heaviside(-x + x_max, 0)
+
+def randspace(xmin, xmax, n, seed=0):
+    numpy.random.seed(seed)
+    return numpy.unique((xmax-xmin) * numpy.random.random(10000) + xmin)
