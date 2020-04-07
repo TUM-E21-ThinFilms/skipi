@@ -5,6 +5,7 @@ global _bm_before, _bm_after, _debug
 
 _bm_before = 0
 _bm_after = 0
+_bm_logger = None
 
 """
 Some utility function for benchmarking. Only active when _debug is set to True.
@@ -22,11 +23,15 @@ def benchmark_start():
 
 
 def benchmark_stop(text):
-    global _bm_after, _bm_before
+    global _bm_after, _bm_before, bm_logger
     _bm_after = time.time()
     diff = _bm_after - _bm_before
     if _debug:
-        print(text.format(str(diff) + " s"))
+        if _bm_logger is None:
+            print(text.format(str(diff) + " s"))
+        else:
+            _bm_logger.debug(text.format(str(diff) + " s"))
+
 
 def _vslice(array, selector, dstart=0, dstop=0):
     start = array[0]
@@ -66,6 +71,7 @@ def islice(iterable, *selectors):
     :return:
     """
     return numpy.concatenate([iterable[slice(*s)] for s in selectors])
+
 
 def vslice(iterable, *selectors, dstart=0, dstop=0):
     """
