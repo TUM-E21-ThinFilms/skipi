@@ -54,8 +54,8 @@ class Function(object):
         :param domain: list of points where the function is defined, equidistantly spaced!
         :param function_callable: callable function to evaluate this Function.
         """
-        if not self._is_evenly_spaced_domain(domain):
-            raise RuntimeWarning("Given domain is not equidistantly spaced")
+        # if not self._is_evenly_spaced_domain(domain):
+        #    raise RuntimeWarning("Given domain is not equidistantly spaced")
 
         if not isinstance(domain, numpy.ndarray):
             self._dom = numpy.array(domain)
@@ -126,7 +126,7 @@ class Function(object):
     def scale_domain(self, factor):
         dom = factor * self._dom
         f = self._f
-        return Function(dom, lambda x: f(x/factor))
+        return Function(dom, lambda x: f(x / factor))
 
     def apply(self, function):
         """
@@ -283,45 +283,67 @@ class Function(object):
     def from_function(cls, fun: 'Function'):
         return cls.to_function(fun.get_domain(), fun.get_function())
 
-    def add(self, other):
-        return self.__add__(other)
-
     @staticmethod
     def _is_number(other):
         return (isinstance(other, int) or
                 isinstance(other, float) or
-                isinstance(other, numpy.complex)
-                or isinstance(other, numpy.float))
+                isinstance(other, numpy.complex) or
+                isinstance(other, numpy.float) or
+                (isinstance(other, numpy.ndarray) and other.size == 1))
+
+    @staticmethod
+    def _unknown_type(other):
+        raise RuntimeError("Unknown type of other")
 
     def __add__(self, other):
         if isinstance(other, Function):
             return Function(self._dom, lambda x: self._f(x) + other.get_function()(x))
+        if callable(other):
+            return Function(self._dom, lambda x: self._f(x) + other(x))
         if self._is_number(other):
             return Function(self._dom, lambda x: self._f(x) + other)
+
+        self._unknown_type(other)
 
     def __sub__(self, other):
         if isinstance(other, Function):
             return Function(self._dom, lambda x: self._f(x) - other.get_function()(x))
+        if callable(other):
+            return Function(self._dom, lambda x: self._f(x) - other(x))
         if self._is_number(other):
             return Function(self._dom, lambda x: self._f(x) - other)
+
+        self._unknown_type(other)
 
     def __pow__(self, power):
         if isinstance(power, Function):
             return Function(self._dom, lambda x: self._f(x) ** power.get_function()(x))
+        if callable(power):
+            return Function(self._dom, lambda x: self._f(x) ** power(x))
         if self._is_number(power):
             return Function(self._dom, lambda x: self._f(x) ** power)
+
+        self._unknown_type(power)
 
     def __mul__(self, other):
         if isinstance(other, Function):
             return Function(self._dom, lambda x: self._f(x) * other.get_function()(x))
+        if callable(other):
+            return Function(self._dom, lambda x: self._f(x) * other(x))
         if self._is_number(other):
             return Function(self._dom, lambda x: self._f(x) * other)
+
+        self._unknown_type(other)
 
     def __truediv__(self, other):
         if isinstance(other, Function):
             return Function(self._dom, lambda x: self._f(x) / other.get_function()(x))
+        if callable(other):
+            return Function(self._dom, lambda x: self._f(x) / other(x))
         if self._is_number(other):
             return Function(self._dom, lambda x: self._f(x) / other)
+
+        self._unknown_type(other)
 
     def __neg__(self):
         f = self._f
@@ -359,6 +381,9 @@ class Function(object):
         if show:
             pylab.show()
 
+    def show(self):
+        self.plot(show=True)
+
     @property
     def real(self):
         return Function(self._dom, lambda x: self._f(x).real)
@@ -377,6 +402,12 @@ class Function(object):
                 roots.append(el)
                 f0 = fn
         return roots
+
+
+class NullFunction(Function):
+    def __init__(self, domain):
+        super(NullFunction, self).__init__(domain, lambda x: 0)
+
 
 
 class UnevenlySpacedFunction(Function):
@@ -459,7 +490,6 @@ class Antiderivative(Integral):
 class Derivative(Function):
     @classmethod
     def to_function(cls, domain, feval):
-        # TODO: test
         feval = evaluate(domain, feval)
         fprime = numpy.gradient(feval, cls.get_dx(domain), edge_order=2)
         return Function.to_function(domain, fprime)
@@ -525,7 +555,11 @@ def to_function(x_space, feval, interpolation=None, to_zero=True):
 
     real = scipy.interpolate.interp1d(x_space, feval.real, fill_value=fill, bounds_error=False,
                                       kind=interpolation)
-    imag = scipy.interpolate.interp1d(x_space, feval.imag, fill_value=fill, bounds_error=False,
-                                      kind=interpolation)
 
-    return lambda x: real(x) + 1j * imag(x)
+    if numpy.any(numpy.iscomplex(feval)):
+        imag = scipy.interpolate.interp1d(x_space, feval.imag, fill_value=fill, bounds_error=False,
+                                          kind=interpolation)
+
+        return lambda x: real(x) + 1j * imag(x)
+
+    return real
