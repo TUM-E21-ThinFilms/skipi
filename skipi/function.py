@@ -126,7 +126,8 @@ class Function(object):
         if not transformation.__code__.co_argcount == 2:
             raise RuntimeError("Transformation has to accept two parameters: x and f(x)")
 
-        return Function.to_function(self._dom, [transformation(x, fx) for (x, fx) in zip(self._dom, self.eval())])
+        return Function.to_function(self._dom,
+                                    [transformation(x, fx) for (x, fx) in zip(self._dom, self.eval())])
 
     def reinterpolate(self):
         """
@@ -286,6 +287,20 @@ class Function(object):
         """
         return Function(new_mesh, to_function(new_mesh, self._f(new_mesh)))
 
+    def oversample(self, n):
+        """
+        Oversamples/Interpolates the function on a equidistant grid.
+        The number of grid points is determined by the old grid times n.
+
+        :param n: Grid-point factor
+        :return:
+        """
+        if n <= 0:
+            raise RuntimeError("The oversampling-factor n has to be a positive integer")
+
+        new_mesh = numpy.linspace(self._dom.min(), self._dom.max(), int(n)*len(self._dom)+1)
+        return self.remesh(new_mesh)
+
     def vremesh(self, *selectors, dstart=0, dstop=0):
         """
         Remeshes the grid/domain using vslice.
@@ -424,6 +439,9 @@ class Function(object):
     def imag(self):
         return Function(self._dom, lambda x: self._f(x).imag)
 
+    def real_imag(self):
+        return self.real, self.imag
+
     def find_zeros(self):
         f0 = self._f(self._dom[0])
         roots = []
@@ -440,6 +458,11 @@ class NullFunction(Function):
     def __init__(self, domain):
         super(NullFunction, self).__init__(domain, lambda x: 0)
 
+
+class ComplexFunction(Function):
+    @classmethod
+    def from_function(cls, real_part: Function, imaginary_part: Function):
+        return real_part + imaginary_part * 1j
 
 
 class UnevenlySpacedFunction(Function):
@@ -612,9 +635,9 @@ class FunctionFileLoader:
 
     Uses the numpy.savetxt/loadtxt methods.
     """
+
     def __init__(self, file):
         self._file = file
-
 
     def from_file(self):
         """
