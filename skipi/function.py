@@ -86,6 +86,9 @@ class Function(object):
 
         return False
 
+    def is_complex(self):
+        return numpy.any(numpy.iscomplex(self.eval()))
+
     def is_evenly_spaced(self):
         return True
 
@@ -95,6 +98,35 @@ class Function(object):
         :return:
         """
         return Function(self._dom, self._f)
+
+    def transform(self, transformation):
+        """
+        Transforms the function f based on the given transformation and returns a new Function F via:
+
+            F.domain = f.domain
+            F(x) = transformation(x, f(x)) for x in f.domain
+
+        The transformation has to accept two parameters: x and f(x)
+
+        :Example:
+        >>> # take the square of a function
+        >>> transformation = lambda x, fx: fx**2
+        >>> # ignoring the previous function and just return a straight line with slope 1.
+        >>> transformation = lambda x, fx: x
+        >>> # Scaling by x**2
+        >>> transformation = lambda x, fx: x**2 * fx
+
+        :param transformation: callable
+        :return: Function
+        """
+
+        if not callable(transformation):
+            raise RuntimeError("Transformation has to be callable")
+
+        if not transformation.__code__.co_argcount == 2:
+            raise RuntimeError("Transformation has to accept two parameters: x and f(x)")
+
+        return Function.to_function(self._dom, [transformation(x, fx) for (x, fx) in zip(self._dom, self.eval())])
 
     def reinterpolate(self):
         """
@@ -536,6 +568,15 @@ def set_interpolation_type(interpolation_type):
 
 
 def to_function(x_space, feval, interpolation=None, to_zero=True):
+    """
+    Returns an interpolated function using x and f(x).
+
+    :param x_space: domain of the function
+    :param feval: evaluated function at f(x) for each x/ or callable function
+    :param interpolation: Type of interpolation, see scipy.interp1d
+    :param to_zero: the returned function will evaluate to zero (or nan) outside the domain
+    :return: Callable function
+    """
     if interpolation is None:
         global FUNCTION_INTERPOLATION_TYPE
         interpolation = FUNCTION_INTERPOLATION_TYPE
@@ -563,3 +604,61 @@ def to_function(x_space, feval, interpolation=None, to_zero=True):
         return lambda x: real(x) + 1j * imag(x)
 
     return real
+
+
+class FunctionFileLoader:
+    """
+    Simple class to write a function to disk and read a function from disk.
+
+    Uses the numpy.savetxt/loadtxt methods.
+    """
+    def __init__(self, file):
+        self._file = file
+
+
+    def from_file(self):
+        """
+        Loads a function from file and returns its object.
+
+        This can read files of the row-form:
+            - x f(x).real f(x).imag
+            - x f(x).real
+
+        :return: Function
+        """
+
+        data = numpy.loadtxt(self._file)
+        try:
+            x, freal, fimag = data.T
+        except:
+            try:
+                x, freal = data.T
+                fimag = None
+            except:
+                raise RuntimeError("Unknown function file type")
+
+        if fimag is None:
+            return Function.to_function(x, freal)
+        else:
+            feval = freal + 1j * fimag
+            return Function.to_function(x, feval)
+
+    def to_file(self, function: Function, header=None):
+        """
+        Saves a given function to disk.
+
+        It will save the file in such a way that it is readable by from_file.
+
+        :param function: Function to save to disk
+        :param header: Header string attached at the beginning of the file, will be added as a comment
+        :return: None
+        """
+        domain = function.get_domain()
+        feval = function.eval()
+
+        if function.is_complex():
+            data = numpy.array([domain, feval.real, feval.imag])
+        else:
+            data = numpy.array([domain, feval])
+
+        numpy.savetxt(self._file, data.T, header=header)
