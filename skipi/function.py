@@ -1,6 +1,8 @@
 import numpy
 import scipy.interpolate
 
+from typing import Callable
+
 from scipy.integrate import trapz
 from skipi.util import vslice
 
@@ -36,7 +38,7 @@ class Function(object):
     >>> g.plot(domain, show=True) # plots g on domain
     """
 
-    def __init__(self, domain, function_callable):
+    def __init__(self, domain, function_callable: Callable):
         """
         Creates a mathematical function based on the given domain and callable object.
 
@@ -99,7 +101,7 @@ class Function(object):
         """
         return Function(self._dom, self._f)
 
-    def transform(self, transformation):
+    def transform(self, transformation: Callable[[complex, complex], complex]):
         """
         Transforms the function f based on the given transformation and returns a new Function F via:
 
@@ -129,7 +131,7 @@ class Function(object):
         return Function.to_function(self._dom,
                                     [transformation(x, fx) for (x, fx) in zip(self._dom, self.eval())])
 
-    def reinterpolate(self):
+    def reinterpolate(self, interpolation_kind=None):
         """
         Uses the internal callable function, to interpolate it on the given domain.
 
@@ -137,7 +139,7 @@ class Function(object):
 
         :return:
         """
-        self._f = to_function(self._dom, self._f)
+        return Function(self._dom, to_function(self._dom, self._f, interpolation=interpolation_kind))
 
     def shift(self, offset, domain=False):
         """
@@ -161,7 +163,7 @@ class Function(object):
         f = self._f
         return Function(dom, lambda x: f(x / factor))
 
-    def apply(self, function):
+    def apply(self, function: Callable):
         """
         Applies a function to Function. (Composition).
 
@@ -180,7 +182,7 @@ class Function(object):
         f = self._f
         return Function(self._dom, lambda x: function(f(x)))
 
-    def composeWith(self, function):
+    def composeWith(self, function: Callable):
         """
         Composition of two functions, similar to apply. However, the composition is the other way round.
 
@@ -275,17 +277,26 @@ class Function(object):
         return self._f(x)
 
     @classmethod
-    def to_function(cls, domain, feval):
-        return cls(domain, to_function(domain, feval))
+    def to_function(cls, domain, feval, **kwargs):
+        return cls(domain, to_function(domain, feval, **kwargs))
 
-    def remesh(self, new_mesh):
+    def remesh(self, new_mesh, reevaluate=False, **kwargs):
         """
-        Remeshes the function using the new_mesh.
+        Remeshes the function using the new_mesh
 
-        :param new_mesh:
+        Note that this will only change the domain, nothing else will change (the callable function
+        is preserved)
+
+        :param new_mesh: The new mesh (i.e. linspace from numpy)
+        :param reevaluate: If True, the function will be evaluated on the new mesh, and interpolated (using
+        the default interpolation kind). kwargs will be directly passed to to_function (to change the
+        interpolation kind).
         :return:
         """
-        return Function(new_mesh, to_function(new_mesh, self._f(new_mesh)))
+        if reevaluate:
+            return Function(new_mesh, to_function(new_mesh, self._f(new_mesh), **kwargs))
+
+        return Function(new_mesh, self._f)
 
     def oversample(self, n):
         """
@@ -298,7 +309,7 @@ class Function(object):
         if n <= 0:
             raise RuntimeError("The oversampling-factor n has to be a positive integer")
 
-        new_mesh = numpy.linspace(self._dom.min(), self._dom.max(), int(n)*len(self._dom)+1)
+        new_mesh = numpy.linspace(self._dom.min(), self._dom.max(), int(n) * len(self._dom) + 1)
         return self.remesh(new_mesh)
 
     def vremesh(self, *selectors, dstart=0, dstop=0):
@@ -461,6 +472,10 @@ class NullFunction(Function):
 
 class ComplexFunction(Function):
     @classmethod
+    def to_function(cls, domain, real_part, imaginary_part, **kwargs):
+        return Function.to_function(domain, real_part + 1j*imaginary_part, **kwargs)
+
+    @classmethod
     def from_function(cls, real_part: Function, imaginary_part: Function):
         return real_part + imaginary_part * 1j
 
@@ -479,7 +494,7 @@ class UnevenlySpacedFunction(Function):
 
 class Integral(Function):
     @classmethod
-    def to_function(cls, domain, feval, C=0, evenly_spaced=True):
+    def to_function(cls, domain, feval, C=0, evenly_spaced=True, **kwargs):
         r"""
         Returns the integral function starting from the first element of domain, i.e.
         ::math..
@@ -495,10 +510,10 @@ class Integral(Function):
         dx = cls.get_dx(domain)
         if evenly_spaced:
             Feval = scipy.integrate.cumtrapz(y=evaluate(domain, feval), dx=dx, initial=0) + C
-            return Function.to_function(domain, Feval)
+            return Function.to_function(domain, Feval, **kwargs)
         else:
             Feval = scipy.integrate.cumtrapz(y=evaluate(domain, feval), x=domain, initial=0) + C
-            return UnevenlySpacedFunction.to_function(domain, Feval)
+            return UnevenlySpacedFunction.to_function(domain, Feval, **kwargs)
 
     @classmethod
     def from_function(cls, fun: Function, x0=None, C=0):
@@ -544,14 +559,73 @@ class Antiderivative(Integral):
 
 class Derivative(Function):
     @classmethod
-    def to_function(cls, domain, feval):
+    def to_function(cls, domain, feval, **kwargs):
         feval = evaluate(domain, feval)
         fprime = numpy.gradient(feval, cls.get_dx(domain), edge_order=2)
-        return Function.to_function(domain, fprime)
+        return Function.to_function(domain, fprime, **kwargs)
 
     @classmethod
     def from_function(cls, fun: Function):
         return cls.to_function(fun.get_domain(), fun)
+
+
+class PiecewiseFunction(Function):
+    @classmethod
+    def from_function(cls, domain, f: Function, conditional: Callable[..., bool], f_otherwise: Function):
+        #return Function(domain, lambda x: f(x) if conditional(x) else f_otherwise(x))
+
+        def feval(x):
+            conds = conditional(x)
+            nconds = numpy.logical_not(conds)
+
+            fe = numpy.zeros(x.shape)
+            fe[conds] = f(x[conds])
+            fe[nconds] = f_otherwise(x[nconds])
+            return fe
+
+        return Function(domain, feval)
+
+    @classmethod
+    def fine_dx(cls, left_grid, right_grid):
+        return min(cls.get_dx(left_grid), cls.get_dx(right_grid))
+
+    @classmethod
+    def coarse_dx(cls, left_grid, right_grid):
+        return min(cls.get_dx(left_grid), cls.get_dx(right_grid))
+
+    @classmethod
+    def create_grid(cls, left_grid, right_grid, dx):
+        if dx <= 0:
+            raise RuntimeError("dx has to be positive")
+
+        point_left = min(left_grid)
+        point_right = max(right_grid)
+
+        return numpy.linspace(point_left, point_right, int((point_right - point_left) / dx) + 1)
+
+    @classmethod
+    def fine_grid(cls, left_grid, right_grid):
+        return cls.create_grid(left_grid, right_grid, cls.fine_dx(left_grid, right_grid))
+
+    @classmethod
+    def coarse_grid(cls, left_grid, right_grid):
+        return cls.create_grid(left_grid, right_grid, cls.coarse_dx(left_grid, right_grid))
+
+
+class StitchedFunction(Function):
+    @classmethod
+    def from_functions(cls, left: Function, right: Function, grid=None):
+        if grid is None:
+            grid = PiecewiseFunction.create_coarse_grid(left.get_domain(), right.get_domain())
+
+        if callable(grid):
+            grid = grid(left.get_domain(), right.get_domain())
+
+        right_domain = min(right.get_domain())
+
+        conditional = lambda x: x < right_domain
+
+        return PiecewiseFunction.from_function(grid, left, conditional, right)
 
 
 def evaluate(domain, function):
@@ -638,6 +712,11 @@ class FunctionFileLoader:
 
     def __init__(self, file):
         self._file = file
+
+    def exists(self):
+        from os import path
+
+        return path.exists(self._file)
 
     def from_file(self):
         """
