@@ -4,7 +4,9 @@ import scipy.interpolate
 from typing import Callable
 
 from scipy.integrate import trapz
+
 from skipi.util import vslice
+from skipi.domain import Domain
 
 FUNCTION_INTERPOLATION_TYPE = 'linear'
 
@@ -473,7 +475,7 @@ class NullFunction(Function):
 class ComplexFunction(Function):
     @classmethod
     def to_function(cls, domain, real_part, imaginary_part, **kwargs):
-        return Function.to_function(domain, real_part + 1j*imaginary_part, **kwargs)
+        return Function.to_function(domain, real_part + 1j * imaginary_part, **kwargs)
 
     @classmethod
     def from_function(cls, real_part: Function, imaginary_part: Function):
@@ -572,8 +574,6 @@ class Derivative(Function):
 class PiecewiseFunction(Function):
     @classmethod
     def from_function(cls, domain, f: Function, conditional: Callable[..., bool], f_otherwise: Function):
-        #return Function(domain, lambda x: f(x) if conditional(x) else f_otherwise(x))
-
         def feval(x):
             conds = conditional(x)
             nconds = numpy.logical_not(conds)
@@ -585,41 +585,16 @@ class PiecewiseFunction(Function):
 
         return Function(domain, feval)
 
-    @classmethod
-    def fine_dx(cls, left_grid, right_grid):
-        return min(cls.get_dx(left_grid), cls.get_dx(right_grid))
-
-    @classmethod
-    def coarse_dx(cls, left_grid, right_grid):
-        return min(cls.get_dx(left_grid), cls.get_dx(right_grid))
-
-    @classmethod
-    def create_grid(cls, left_grid, right_grid, dx):
-        if dx <= 0:
-            raise RuntimeError("dx has to be positive")
-
-        point_left = min(left_grid)
-        point_right = max(right_grid)
-
-        return numpy.linspace(point_left, point_right, int((point_right - point_left) / dx) + 1)
-
-    @classmethod
-    def fine_grid(cls, left_grid, right_grid):
-        return cls.create_grid(left_grid, right_grid, cls.fine_dx(left_grid, right_grid))
-
-    @classmethod
-    def coarse_grid(cls, left_grid, right_grid):
-        return cls.create_grid(left_grid, right_grid, cls.coarse_dx(left_grid, right_grid))
-
 
 class StitchedFunction(Function):
     @classmethod
     def from_functions(cls, left: Function, right: Function, grid=None):
+
         if grid is None:
-            grid = PiecewiseFunction.create_coarse_grid(left.get_domain(), right.get_domain())
+            grid = Domain.coarse_grid
 
         if callable(grid):
-            grid = grid(left.get_domain(), right.get_domain())
+            grid = grid([left.get_domain(), right.get_domain()])
 
         right_domain = min(right.get_domain())
 
@@ -764,3 +739,38 @@ class FunctionFileLoader:
             data = numpy.array([domain, feval])
 
         numpy.savetxt(self._file, data.T, header=header)
+
+
+class AutomorphDecorator(object):
+    """
+    Use this class to create a function object which changes when you apply specific methods.
+
+    Usually, a function object is kept immutable, i.e. calling transform/apply just returns a new function
+    and the old function is not changing.
+
+    To avoid this behaviour (i.e. the function is actually changing) you can use this decorator. So calling
+    i.e. transform/apply does change the function.
+
+    We get this behaviour by this proxy class. This class keeps a reference to a function object and every
+    time a new function is created, the reference is updated. From the outside, it looks like it's changing.
+
+    Note that this class does not act like a Function class, it's just forwarding method calls to the
+    internal function. Thus, use this class only in special cases and avoid it when possible.
+    """
+    def __init__(self, f: Function):
+        self._f = f
+        # Methods that change the internal function
+        self.morph_methods = ['reparametrize', 'transform', 'reinterpolate', 'shift', 'scale_domain', 'apply',
+                           'composeWith', 'vremesh', 'oversample', 'remesh', 'log10', 'log', 'abs', 'conj']
+
+    def __getattr__(self, method):
+        if method in self.morph_methods:
+            def wrapped(*args, **kwargs):
+                ret = getattr(self._f, method)(*args, **kwargs)
+                if isinstance(ret, Function):
+                    self._f = ret
+                return ret
+
+            return wrapped
+
+        return getattr(self._f, method)

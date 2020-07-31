@@ -1,7 +1,9 @@
 import numpy
 
 from typing import List, Callable, Any
+
 from skipi.function import Function
+from skipi.domain import Domain
 
 
 class ParametrizedFunction(Function):
@@ -63,6 +65,9 @@ class ParametrizedFunction(Function):
 
         super(ParametrizedFunction, self).__init__(dom, f)
 
+    def copy(self):
+        return ParametrizedFunction(self._dom_factory, self._f_factory, self._param_names, self._params)
+
     def reparametrize(self, params):
         """
         Returns a new parametrized function, just with the parameters updated
@@ -111,3 +116,65 @@ class ParametrizedFunction(Function):
         :return:
         """
         return self._f_factory
+
+
+class Combine(Function):
+    def __init__(self, domain, functions: List[Callable], operator: Callable):
+
+        self._fs = functions
+        self._operator = operator
+
+        super(Combine, self).__init__(domain, self._operation(functions, operator))
+
+    @classmethod
+    def _operation(cls, functions: List[Callable], operator: Callable):
+        return lambda x: operator(functions)(x)
+
+    @classmethod
+    def from_functions(cls, functions: List[Callable], operator=numpy.sum, domain=Domain.fine_grid):
+        if callable(domain):
+            grids = [f.get_domain() for f in functions]
+            domain = domain(grids)
+
+        return cls(domain, functions, operator)
+
+    def get_functions(self):
+        return self._fs
+
+    def __getitem__(self, item):
+        return self._fs[item]
+
+    def __setitem__(self, item, value):
+        if value is None:
+            del self[item]
+        else:
+            self._fs[item] = value
+
+    def __delitem__(self, key):
+        del self._fs[key]
+
+    def __or__(self, other):
+        if isinstance(other, Function):
+            self._fs.append(other)
+        else:
+            raise RuntimeError("Unknown type of other")
+
+        return self
+
+    def append(self, others):
+        if isinstance(others, list):
+            self._fs.extend(others)
+        else:
+            self._fs.append(others)
+
+
+Gaussian = ParametrizedFunction(lambda p: numpy.linspace(p[0] - 5 * p[1], p[0] + 5 * p[1], 2000),
+                                lambda p: lambda x: numpy.exp(-(x - p[0]) ** 2 / p[1] ** 2) * 1 / numpy.sqrt(
+                                    2 * numpy.pi * p[1] ** 2),
+                                ["mu", "sigma"],
+                                [2.3, 1.0])
+
+f2 = Gaussian.reparametrize([1.0, 1.0])
+f3 = Gaussian.reparametrize([0, 20])
+
+F = Combine.from_functions([f2, Gaussian, f3], operator=numpy.sum, domain=Domain.fine_grid)
