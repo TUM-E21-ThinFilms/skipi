@@ -62,3 +62,14 @@ def test_intergation_bounds():
     F4 = Function(x_domain, lambda x: x ** 2 + x)
 
     assert_equal(F, F4, TOL=1e-6)
+
+def test_strechted_exponential():
+    x_domain = np.linspace(0, 10, 50000)
+    f = Function(x_domain, lambda x: np.exp(-np.sqrt(x)))
+    F = Integral.from_function(f, 0)
+
+    F_exact = Function(x_domain, lambda x: -2*np.exp(-np.sqrt(x))*(1+np.sqrt(x))+2)
+
+    assert_equal(F, F_exact, TOL=1e-6)
+
+    #F.plot(show=True)

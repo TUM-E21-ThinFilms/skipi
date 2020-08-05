@@ -578,7 +578,7 @@ class PiecewiseFunction(Function):
             conds = conditional(x)
             nconds = numpy.logical_not(conds)
 
-            fe = numpy.zeros(x.shape)
+            fe = numpy.zeros(x.shape, dtype=complex)
             fe[conds] = f(x[conds])
             fe[nconds] = f_otherwise(x[nconds])
             return fe
@@ -720,7 +720,7 @@ class FunctionFileLoader:
             feval = freal + 1j * fimag
             return Function.to_function(x, feval)
 
-    def to_file(self, function: Function, header=None):
+    def to_file(self, function: Function, header=''):
         """
         Saves a given function to disk.
 
