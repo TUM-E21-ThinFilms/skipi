@@ -73,6 +73,7 @@ class Function(object):
             function_callable = function_callable.get_function()
 
         self._f = function_callable
+        self._dy = None
 
     @classmethod
     def _is_evenly_spaced_domain(cls, domain):
@@ -452,6 +453,14 @@ class Function(object):
     def imag(self):
         return Function(self._dom, lambda x: self._f(x).imag)
 
+    @property
+    def dy(self):
+        return self._dy
+
+    def set_dy(self, dy: 'Function'):
+        assert isinstance(dy, Function)
+        self._dy = dy
+
     def real_imag(self):
         return self.real, self.imag
 
@@ -693,32 +702,43 @@ class FunctionFileLoader:
 
         return path.exists(self._file)
 
-    def from_file(self):
+    def from_file(self, has_errors=False):
         """
         Loads a function from file and returns its object.
 
         This can read files of the row-form:
             - x f(x).real f(x).imag
+            - X f(x).real df(x).real f(x).imag df(x).imag
             - x f(x).real
+            - x f(x).real df(x).real
 
         :return: Function
         """
 
         data = numpy.loadtxt(self._file)
-        try:
-            x, freal, fimag = data.T
-        except:
-            try:
-                x, freal = data.T
-                fimag = None
-            except:
-                raise RuntimeError("Unknown function file type")
 
-        if fimag is None:
-            return Function.to_function(x, freal)
-        else:
-            feval = freal + 1j * fimag
-            return Function.to_function(x, feval)
+        l = len(data.T)
+
+        if l == 2:
+            x, freal = data.T
+            Function.to_function(x, freal)
+        elif l == 3:
+            if has_errors:
+                x, f, df = data.T
+                f = Function.to_function(x, f)
+                f.set_dy(Function.to_function(x, df))
+                return f
+            else:
+                x, freal, fimag = data.T
+                return ComplexFunction.to_function(x, freal, fimag)
+
+        elif l == 5:
+            x, freal, dfreal, fimag, dfimag = data.T
+            f = ComplexFunction.to_function(x, freal, fimag)
+            f.set_dy(ComplexFunction.to_function(x, dfreal, dfimag))
+            return f
+
+        raise RuntimeError("Unknown function file type")
 
     def to_file(self, function: Function, header=''):
         """
@@ -732,14 +752,27 @@ class FunctionFileLoader:
         """
         domain = function.get_domain()
         feval = function.eval()
+        dy = function.dy
 
         if function.is_complex():
-            data = numpy.array([domain, feval.real, feval.imag])
+            if dy is not None:
+                dyeval = dy.eval()
+                data = numpy.array([domain, feval.real, dyeval.real, feval.imag, dyeval.imag])
+                pre_header = ["x", "Re f(x)", "Re df(x)", "Im f(x)", "Im df(x)"]
+            else:
+                data = numpy.array([domain, feval.real, feval.imag])
+                pre_header = ["x", "Re f(x)", "Im f(x)"]
         else:
-            data = numpy.array([domain, feval])
+            if dy is not None:
+                pre_header = ["x", "f(x)", "df(x)"]
+                data = numpy.array([domain, feval, dy.eval()])
+            else:
+                pre_header = ["x", "f(x)"]
+                data = numpy.array([domain, feval])
+
+        header = "\t".join(pre_header) + "\n" + header
 
         numpy.savetxt(self._file, data.T, header=header)
-
 
 class AutomorphDecorator(object):
     """
