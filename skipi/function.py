@@ -5,7 +5,7 @@ from typing import Callable
 
 from scipy.integrate import trapz
 
-from skipi.util import vslice
+from skipi.util import vslice, is_number
 from skipi.domain import Domain
 
 FUNCTION_INTERPOLATION_TYPE = 'linear'
@@ -40,7 +40,7 @@ class Function(object):
     >>> g.plot(domain, show=True) # plots g on domain
     """
 
-    def __init__(self, domain, function_callable: Callable):
+    def __init__(self, domain: Domain, fun_callable: Callable, dy: 'Function' = None, dx: 'Function' = None):
         """
         Creates a mathematical function based on the given domain and callable object.
 
@@ -56,40 +56,36 @@ class Function(object):
         in-build function definitions.
 
         :param domain: list of points where the function is defined, equidistantly spaced!
-        :param function_callable: callable function to evaluate this Function.
+        :param fun_callable: callable function to evaluate this Function.
         """
-        # if not self._is_evenly_spaced_domain(domain):
-        #    raise RuntimeWarning("Given domain is not equidistantly spaced")
 
-        if not isinstance(domain, numpy.ndarray):
-            self._dom = numpy.array(domain)
+        if isinstance(domain, Domain):
+            self._domain = domain
         else:
-            self._dom = domain
+            self._domain = Domain.from_domain(domain)
 
-        if not callable(function_callable):
+        if not callable(fun_callable):
             raise RuntimeError("function must be callable")
 
-        if isinstance(function_callable, Function):
-            function_callable = function_callable.get_function()
+        if isinstance(fun_callable, Function):
+            fun_callable = fun_callable.get_function()
 
-        self._f = function_callable
-        self._dy = None
+        self._f = fun_callable
+        self._dy = dy
+        self._dx = dx
 
-    @classmethod
-    def _is_evenly_spaced_domain(cls, domain):
-        """
-        Checks whether the given domain (list) is evenly (equdistantly) spaced.
+    def __reduce__(self):
+        dy = self._dy.eval() if self._dy is not None else None
+        dx = self._dx.eval() if self._dx is not None else None
+        args = (self._domain, self.eval(), dy, dx)
+        return (Function.__unpickle__, args)
 
-        :param domain: numpy.array. domain to check
-        :return: boolean
-        """
-
-        diff = numpy.diff(domain)
-
-        if numpy.all(numpy.isclose(diff - diff[0], numpy.zeros(len(diff)))):
-            return True
-
-        return False
+    @staticmethod
+    def __unpickle__(dom, f, dy, dx):
+        f = Function.to_function(dom, f)
+        dy = Function.to_function(dom, dy) if dy is not None else None
+        dx = Function.to_function(dom, dx) if dx is not None else None
+        return Function(dom, f, dy, dx)
 
     def is_complex(self):
         return numpy.any(numpy.iscomplex(self.eval()))
@@ -102,7 +98,7 @@ class Function(object):
         Copies and returns the copied function
         :return:
         """
-        return Function(self._dom, self._f)
+        return self.__class__(self._domain, self._f)
 
     def transform(self, transformation: Callable[[complex, complex], complex]):
         """
@@ -131,8 +127,9 @@ class Function(object):
         if not transformation.__code__.co_argcount == 2:
             raise RuntimeError("Transformation has to accept two parameters: x and f(x)")
 
-        return Function.to_function(self._dom,
-                                    [transformation(x, fx) for (x, fx) in zip(self._dom, self.eval())])
+        return self.__class__.to_function(self._domain,
+                                          [transformation(x, fx) for (x, fx) in
+                                           zip(self.get_domain(), self.eval())])
 
     def reinterpolate(self, interpolation_kind=None):
         """
@@ -142,7 +139,8 @@ class Function(object):
 
         :return:
         """
-        return Function(self._dom, to_function(self._dom, self._f, interpolation=interpolation_kind))
+        return self.__class__(self._domain,
+                              to_function(self.get_domain(), self._f, interpolation=interpolation_kind))
 
     def shift(self, offset, domain=False):
         """
@@ -154,17 +152,29 @@ class Function(object):
         :param domain:
         :return:
         """
-        dom = self._dom
+        dom = self._domain
         if domain is True:
-            dom = self._dom + offset
+            dom = self._domain.shift(offset)
+
+        dx = self._dx.shift(offset, domain) if self._dx else None
+        dy = self._dy.shift(offset, domain) if self._dy else None
 
         f = self._f
-        return Function(dom, lambda x: f(x - offset))
+        return self.__class__(dom, lambda x: f(x - offset), dx=dx, dy=dy)
 
     def scale_domain(self, factor):
-        dom = factor * self._dom
+        """
+        Scales the domain by the factor (and the function accordingly)
+
+        :param factor: Scaling factor, should not be zero
+        :return:
+        """
         f = self._f
-        return Function(dom, lambda x: f(x / factor))
+
+        dx = self._dx.scale_domain(factor) if self._dx else None
+        dy = self._dy.scale_domain(factor) if self._dy else None
+
+        return self.__class__(self._domain.scale(factor), lambda x: f(x / factor), dx=dx, dy=dy)
 
     def apply(self, function: Callable):
         """
@@ -183,7 +193,7 @@ class Function(object):
         """
 
         f = self._f
-        return Function(self._dom, lambda x: function(f(x)))
+        return self.__class__(self._domain, lambda x: function(f(x)))
 
     def composeWith(self, function: Callable):
         """
@@ -201,7 +211,28 @@ class Function(object):
         """
 
         f = self._f
-        return Function(self._dom, lambda x: f(function(x)))
+        return self.__class__(self._domain, lambda x: f(function(x)))
+
+    def flip(self, x0=None):
+        """
+        "Flips"/"mirrors" the function the function at x0.
+
+        If x0 is None, then it will be chosen such that the most right data point in the domain
+        will be mapped to the most left x point (and vice versa).
+
+        The domain will not be adjusted by default!
+
+        :param x0: mirror axis
+        :return:
+        """
+        if x0 is None:
+            x0 = self._domain.min() + self._domain.max()
+
+        dx = self._dx.flip(x0) if self._dx else None
+        dy = self._dy.flip(x0) if self._dy else None
+
+        f = self._f
+        return self.__class__(self._domain, lambda x: f(x0 - x), dx=dx, dy=dy)
 
     def conj(self):
         """
@@ -215,7 +246,7 @@ class Function(object):
         Computes the absolute value and returns it.
         :return:
         """
-        return self.apply(abs)
+        return self.apply(numpy.abs)
 
     def log(self):
         """
@@ -260,18 +291,28 @@ class Function(object):
         return self.get_domain()[numpy.argmin(self.eval())]
 
     def get_domain(self):
-        return self._dom
+        return self._domain.get()
+
+    def get_dom(self):
+        return self._domain
 
     def eval(self):
         return self(self.get_domain())
 
     @classmethod
     def get_dx(cls, domain):
+        """
+        Returns the spacing in the domain, called dx.
+        Not to be mixed up with dx being the error in the x variable.
+
+        TODO: Should be moved to Domain-class
+        :param domain:
+        :return:
+        """
         if len(domain) < 2:
             return 0
 
-        # Assuming equidistantly spaced domain
-        return domain[1] - domain[0]
+        return Domain.get_dx(domain)
 
     def get_function(self):
         return self._f
@@ -296,10 +337,17 @@ class Function(object):
         interpolation kind).
         :return:
         """
-        if reevaluate:
-            return Function(new_mesh, to_function(new_mesh, self._f(new_mesh), **kwargs))
+        dx, dy = None, None
 
-        return Function(new_mesh, self._f)
+        if self._dx is not None:
+            dx = self._dx.remesh(new_mesh, reevaluate=reevaluate, **kwargs)
+        if self._dy is not None:
+            dy = self._dy.remesh(new_mesh, reevaluate=reevaluate, **kwargs)
+
+        if reevaluate:
+            return self.__class__(new_mesh, to_function(new_mesh, self._f, **kwargs), dy=dy, dx=dx)
+
+        return self.__class__(new_mesh, self._f, dy=dy, dx=dx)
 
     def oversample(self, n):
         """
@@ -312,8 +360,10 @@ class Function(object):
         if n <= 0:
             raise RuntimeError("The oversampling-factor n has to be a positive integer")
 
-        new_mesh = numpy.linspace(self._dom.min(), self._dom.max(), int(n) * len(self._dom) + 1)
-        return self.remesh(new_mesh)
+        if n == 1:
+            return self
+
+        return self.remesh(self._domain.oversample(n))
 
     def vremesh(self, *selectors, dstart=0, dstop=0):
         """
@@ -337,20 +387,11 @@ class Function(object):
         :param dstop:
         :return:
         """
-
-        return self.remesh(vslice(self.get_domain(), *selectors, dstart=dstart, dstop=dstop))
+        return self.remesh(self._domain.vremesh(*selectors, dstart=dstart, dstop=dstop))
 
     @classmethod
     def from_function(cls, fun: 'Function'):
-        return cls.to_function(fun.get_domain(), fun.get_function())
-
-    @staticmethod
-    def _is_number(other):
-        return (isinstance(other, int) or
-                isinstance(other, float) or
-                isinstance(other, numpy.complex) or
-                isinstance(other, numpy.float) or
-                (isinstance(other, numpy.ndarray) and other.size == 1))
+        return cls.to_function(fun.get_dom(), fun.get_function())
 
     @staticmethod
     def _unknown_type(other):
@@ -358,64 +399,66 @@ class Function(object):
 
     def __add__(self, other):
         if isinstance(other, Function):
-            return Function(self._dom, lambda x: self._f(x) + other.get_function()(x))
+            return self.__class__(self._domain, lambda x: self._f(x) + other.get_function()(x))
         if callable(other):
-            return Function(self._dom, lambda x: self._f(x) + other(x))
-        if self._is_number(other):
-            return Function(self._dom, lambda x: self._f(x) + other)
+            return self.__class__(self._domain, lambda x: self._f(x) + other(x))
+        if is_number(other):
+            return self.__class__(self._domain, lambda x: self._f(x) + other)
 
         self._unknown_type(other)
 
     def __sub__(self, other):
         if isinstance(other, Function):
-            return Function(self._dom, lambda x: self._f(x) - other.get_function()(x))
+            return self.__class__(self._domain, lambda x: self._f(x) - other.get_function()(x))
         if callable(other):
-            return Function(self._dom, lambda x: self._f(x) - other(x))
-        if self._is_number(other):
-            return Function(self._dom, lambda x: self._f(x) - other)
+            return self.__class__(self._domain, lambda x: self._f(x) - other(x))
+        if is_number(other):
+            return self.__class__(self._domain, lambda x: self._f(x) - other)
 
         self._unknown_type(other)
 
     def __pow__(self, power):
         if isinstance(power, Function):
-            return Function(self._dom, lambda x: self._f(x) ** power.get_function()(x))
+            return self.__class__(self._domain, lambda x: self._f(x) ** power.get_function()(x))
         if callable(power):
-            return Function(self._dom, lambda x: self._f(x) ** power(x))
-        if self._is_number(power):
-            return Function(self._dom, lambda x: self._f(x) ** power)
+            return self.__class__(self._domain, lambda x: self._f(x) ** power(x))
+        if is_number(power):
+            return self.__class__(self._domain, lambda x: self._f(x) ** power)
 
         self._unknown_type(power)
 
     def __mul__(self, other):
         if isinstance(other, Function):
-            return Function(self._dom, lambda x: self._f(x) * other.get_function()(x))
+            return self.__class__(self._domain, lambda x: self._f(x) * other.get_function()(x))
         if callable(other):
-            return Function(self._dom, lambda x: self._f(x) * other(x))
-        if self._is_number(other):
-            return Function(self._dom, lambda x: self._f(x) * other)
+            return self.__class__(self._domain, lambda x: self._f(x) * other(x))
+        if is_number(other):
+            return self.__class__(self._domain, lambda x: self._f(x) * other)
 
         self._unknown_type(other)
 
     def __truediv__(self, other):
         if isinstance(other, Function):
-            return Function(self._dom, lambda x: self._f(x) / other.get_function()(x))
+            return self.__class__(self._domain, lambda x: self._f(x) / other.get_function()(x))
         if callable(other):
-            return Function(self._dom, lambda x: self._f(x) / other(x))
-        if self._is_number(other):
-            return Function(self._dom, lambda x: self._f(x) / other)
+            return self.__class__(self._domain, lambda x: self._f(x) / other(x))
+        if is_number(other):
+            return self.__class__(self._domain, lambda x: self._f(x) / other)
 
         self._unknown_type(other)
 
     def __neg__(self):
         f = self._f
-        return Function(self._dom, lambda x: -f(x))
+        return self.__class__(self._domain, lambda x: -f(x))
 
     def plot(self, plot_space=None, show=False, real=True, **kwargs):
         import pylab
         if plot_space is None:
             plot_space = self.get_domain()
 
+        plot_function = pylab.plot
         feval = self._f(plot_space)
+        dfeval = self._dy.eval() if self._dy is not None else None
 
         lbl_re = {}
         lbl_im = {}
@@ -431,10 +474,16 @@ class Function(object):
         except KeyError:
             lbl = None
 
-        pylab.plot(plot_space, feval.real, **kwargs, **lbl_re)
+        if dfeval is not None:
+            plot_function = pylab.errorbar
+            kwargs['yerr'] = dfeval.real
+
+        plot_function(plot_space, feval.real, **kwargs, **lbl_re)
 
         if not real:
-            pylab.plot(plot_space, feval.imag, **kwargs, **lbl_im)
+            if dfeval is not None:
+                kwargs['yerr'] = dfeval.imag
+            plot_function(plot_space, feval.imag, **kwargs, **lbl_im)
 
         if not lbl is None:
             pylab.legend()
@@ -447,33 +496,41 @@ class Function(object):
 
     @property
     def real(self):
-        return Function(self._dom, lambda x: self._f(x).real)
+        return self.__class__(self._domain, lambda x: self._f(x).real)
 
     @property
     def imag(self):
-        return Function(self._dom, lambda x: self._f(x).imag)
+        return self.__class__(self._domain, lambda x: self._f(x).imag)
 
     @property
     def dy(self):
         return self._dy
 
-    def set_dy(self, dy: 'Function'):
-        assert isinstance(dy, Function)
+    @property
+    def dx(self):
+        return self._dx
+
+    @dy.setter
+    def dy(self, dy):
+        assert isinstance(dy, Function) or dy is None
         self._dy = dy
+
+    @dx.setter
+    def dx(self, dx):
+        assert isinstance(dx, Function) or dx is None
+        self._dx = dx
+
+    def set_dy(self, dy: 'Function'):
+        self._dy = dy
+
+    def set_dx(self, dx: 'Function'):
+        self._dx = dx
 
     def real_imag(self):
         return self.real, self.imag
 
-    def find_zeros(self):
-        f0 = self._f(self._dom[0])
-        roots = []
-        for el in self._dom:
-            fn = self._f(el)
-            if (f0.real * fn.real) < 0:
-                # there was a change in sign.
-                roots.append(el)
-                f0 = fn
-        return roots
+    def lp_metric(self, p=2):
+        return numpy.sum(numpy.power(self.eval(), p))
 
 
 class NullFunction(Function):
@@ -491,21 +548,76 @@ class ComplexFunction(Function):
         return real_part + imaginary_part * 1j
 
 
-class UnevenlySpacedFunction(Function):
+class MaxOfFunctions(Function):
     @classmethod
-    def _is_evenly_spaced_domain(cls, domain):
-        return True
+    def from_functions(cls, functions: [Function]):
+        return Function.to_function(functions[0].get_dom(), lambda x: numpy.max([f(x) for f in functions]))
 
-    def is_evenly_spaced(self):
-        return False
 
-    def get_dx(self, domain):
-        return numpy.diff(domain)
+class MinOfFunctions(Function):
+    @classmethod
+    def from_functions(cls, functions: [Function]):
+        return Function.to_function(functions[0].get_dom(), lambda x: numpy.min([f(x) for f in functions]))
+
+
+class DrawFromFunction(Function):
+    @classmethod
+    def from_function(cls, function: Function):
+        dy = function.dy
+        if dy is None:
+            return function
+
+        feval_real = numpy.random.normal(function.eval().real, dy.eval().real)
+
+        if function.is_complex():
+            feval_imag = numpy.random.normal(function.eval().imag, dy.eval().imag)
+            return Function.to_function(function.get_dom(), feval_real + 1j * feval_imag)
+
+        return Function.to_function(function.get_dom(), feval_real)
+
+
+class ComputeStandardDeviation(Function):
+    @classmethod
+    def from_functions(cls, functions: [Function], domain=None, std_fun=None):
+        """
+        Computes the standard deviation (pointwise) using all functions
+
+        If domain is None, the domain from the first function will be used
+
+        If std_fun is None, the "complex" standard deviation will be used, see the method cstd.
+
+
+        :param functions: A list of functions from which the std should be calculated
+        :param domain: A domain
+        :param std_fun: A function calculating the std
+        :return: new Function
+        """
+        if domain is None:
+            domain = functions[0].get_domain()
+
+        if std_fun is None:
+            std_fun = cls.cstd
+
+        return Function.to_function(domain, lambda x: std_fun([f(x) for f in functions]))
+
+    @staticmethod
+    def cstd(complexs):
+        """
+        Calculates the standard deviation of a complex number by splitting it into the real and imaginary
+        part, resulting in a complex standard deviation:
+
+            cstd(complex) = std(complex.real) + 1j*std(complex.imag).
+
+        :param complexs:
+        :return:
+        """
+        complexs = numpy.array(complexs)
+        return numpy.std(complexs.real) + 1j*numpy.std(complexs.imag)
 
 
 class Integral(Function):
     @classmethod
-    def to_function(cls, domain, feval, C=0, evenly_spaced=True, **kwargs):
+    def to_function(cls, domain, feval, C=0, **kwargs):
         r"""
         Returns the integral function starting from the first element of domain, i.e.
         ::math..
@@ -515,21 +627,17 @@ class Integral(Function):
         :param domain:
         :param feval:
         :param C: integral constant (can be arbitrary)
-        :param evenly_spaced: Whether the domain is evenly spaced or not
         :return:
         """
-        dx = cls.get_dx(domain)
-        if evenly_spaced:
-            Feval = scipy.integrate.cumtrapz(y=evaluate(domain, feval), dx=dx, initial=0) + C
-            return Function.to_function(domain, Feval, **kwargs)
-        else:
-            Feval = scipy.integrate.cumtrapz(y=evaluate(domain, feval), x=domain, initial=0) + C
-            return UnevenlySpacedFunction.to_function(domain, Feval, **kwargs)
+        dx = Domain.get_dx(domain)
+
+        Feval = scipy.integrate.cumtrapz(y=evaluate(domain, feval), dx=dx, initial=0) + C
+        return Function.to_function(domain, Feval, **kwargs)
 
     @classmethod
     def from_function(cls, fun: Function, x0=None, C=0):
         if x0 is None:
-            return cls.to_function(fun.get_domain(), fun, C=C, evenly_spaced=fun.is_evenly_spaced())
+            return cls.to_function(fun.get_domain(), fun, C=C)
         else:
             F = cls.from_function(fun)
             return F - F(x0)
@@ -556,11 +664,8 @@ class Integral(Function):
         if not any(numpy.array([x0, x1]) is None):
             fun = fun.vremesh((x0, x1))
 
-        dx = cls.get_dx(fun.get_domain())
-        if fun.is_evenly_spaced():
-            return scipy.integrate.trapz(fun.eval(), dx=dx)
-        else:
-            return scipy.integrate.trapz(fun.eval(), x=fun.get_domain())
+        dx = Domain.get_dx(fun.get_dom())
+        return scipy.integrate.trapz(fun.eval(), dx=dx)
 
 
 # Just renaming
@@ -572,12 +677,12 @@ class Derivative(Function):
     @classmethod
     def to_function(cls, domain, feval, **kwargs):
         feval = evaluate(domain, feval)
-        fprime = numpy.gradient(feval, cls.get_dx(domain), edge_order=2)
+        fprime = numpy.gradient(feval, Domain.get_dx(domain), edge_order=2)
         return Function.to_function(domain, fprime, **kwargs)
 
     @classmethod
     def from_function(cls, fun: Function):
-        return cls.to_function(fun.get_domain(), fun)
+        return cls.to_function(fun.get_dom(), fun)
 
 
 class PiecewiseFunction(Function):
@@ -598,18 +703,13 @@ class PiecewiseFunction(Function):
 class StitchedFunction(Function):
     @classmethod
     def from_functions(cls, left: Function, right: Function, grid=None):
+        domain = Domain.from_domains([left.get_dom(), right.get_dom()], grid)
 
-        if grid is None:
-            grid = Domain.coarse_grid
-
-        if callable(grid):
-            grid = grid([left.get_domain(), right.get_domain()])
-
-        right_domain = min(right.get_domain())
+        right_domain = right.get_dom().min()
 
         conditional = lambda x: x < right_domain
 
-        return PiecewiseFunction.from_function(grid, left, conditional, right)
+        return PiecewiseFunction.from_function(domain, left, conditional, right)
 
 
 def evaluate(domain, function):
@@ -625,6 +725,9 @@ def evaluate(domain, function):
     :raise RuntimeError: Unknown type of function given
     :return:
     """
+    if isinstance(domain, Domain):
+        domain = domain.get()
+
     if callable(function):
         return numpy.array([function(x) for x in domain])
     elif isinstance(function, numpy.ndarray) and len(domain) == len(function):
@@ -662,6 +765,9 @@ def to_function(x_space, feval, interpolation=None, to_zero=True):
         global FUNCTION_INTERPOLATION_TYPE
         interpolation = FUNCTION_INTERPOLATION_TYPE
 
+    if isinstance(x_space, Domain):
+        x_space = x_space.get()
+
     if callable(feval):
         feval = numpy.array([feval(x) for x in x_space])
 
@@ -694,8 +800,9 @@ class FunctionFileLoader:
     Uses the numpy.savetxt/loadtxt methods.
     """
 
-    def __init__(self, file):
-        self._file = file
+    def __init__(self, file, prefix=''):
+        import os
+        self._file = os.path.join(prefix, file)
 
     def exists(self):
         from os import path
@@ -721,7 +828,7 @@ class FunctionFileLoader:
 
         if l == 2:
             x, freal = data.T
-            Function.to_function(x, freal)
+            return Function.to_function(x, freal)
         elif l == 3:
             if has_errors:
                 x, f, df = data.T
@@ -774,6 +881,7 @@ class FunctionFileLoader:
 
         numpy.savetxt(self._file, data.T, header=header)
 
+
 class AutomorphDecorator(object):
     """
     Use this class to create a function object which changes when you apply specific methods.
@@ -790,11 +898,12 @@ class AutomorphDecorator(object):
     Note that this class does not act like a Function class, it's just forwarding method calls to the
     internal function. Thus, use this class only in special cases and avoid it when possible.
     """
+
     def __init__(self, f: Function):
         self._f = f
         # Methods that change the internal function
         self.morph_methods = ['reparametrize', 'transform', 'reinterpolate', 'shift', 'scale_domain', 'apply',
-                           'composeWith', 'vremesh', 'oversample', 'remesh', 'log10', 'log', 'abs', 'conj']
+                              'composeWith', 'vremesh', 'oversample', 'remesh', 'log10', 'log', 'abs', 'conj']
 
     def __getattr__(self, method):
         if method in self.morph_methods:

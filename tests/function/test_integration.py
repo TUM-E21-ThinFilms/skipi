@@ -1,5 +1,5 @@
 import numpy as np
-from skipi.function import Function, Integral, UnevenlySpacedFunction
+from skipi.function import Function, Integral
 
 from ..helper import assert_equal, randspace
 
@@ -11,15 +11,6 @@ def test_integration():
     F2 = Function(x_domain, lambda x: 3 * x ** 2)
 
     assert_equal(F, F2)
-
-
-def test_integration_random_domain():
-    x_domain = randspace(0, 10, 1000)
-    f = UnevenlySpacedFunction(x_domain, lambda x: 6 * x)
-    F = Integral.from_function(f)
-    F2 = UnevenlySpacedFunction(x_domain, lambda x: 3 * x ** 2)
-
-    assert_equal(F, F2, TOL=1e-5)
 
 
 def abstract_test_integration(domain):
@@ -63,13 +54,12 @@ def test_intergation_bounds():
 
     assert_equal(F, F4, TOL=1e-6)
 
+
 def test_strechted_exponential():
     x_domain = np.linspace(0, 10, 50000)
     f = Function(x_domain, lambda x: np.exp(-np.sqrt(x)))
     F = Integral.from_function(f, 0)
 
-    F_exact = Function(x_domain, lambda x: -2*np.exp(-np.sqrt(x))*(1+np.sqrt(x))+2)
+    F_exact = Function(x_domain, lambda x: -2 * np.exp(-np.sqrt(x)) * (1 + np.sqrt(x)) + 2)
 
     assert_equal(F, F_exact, TOL=1e-6)
-
-    #F.plot(show=True)

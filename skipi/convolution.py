@@ -1,4 +1,6 @@
 import numpy
+
+from skipi.domain import Domain
 from skipi.function import Function
 
 class AbstractConvolution(Function):
@@ -24,8 +26,9 @@ class GaussianSmoothing(AbstractConvolution):
         :return:
         """
         sigma = kwargs.get('sigma', 1.0)
-        spacing = fun.get_dx(fun.get_domain())
-        width = numpy.arange(-5 * sigma, 5 * sigma, spacing)
+        dx = Domain.get_dx(fun.get_dom())
+
+        width = numpy.arange(-5 * sigma, 5 * sigma, dx)
         kernel = 1.0 / numpy.sqrt(2 * numpy.pi * sigma ** 2) * numpy.exp(
-            -numpy.square(width / sigma) / 2.0) * spacing
+            -numpy.square(width / sigma) / 2.0) * dx
         return kernel

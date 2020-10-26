@@ -13,6 +13,9 @@ class FunctionPlotter(object):
         self._axs, self._fig = axis, figure
         self._plot_args = {}
 
+        self.plot_dx = True
+        self.plot_dy = True
+
         self._default_args()
 
     @property
@@ -40,20 +43,15 @@ class FunctionPlotter(object):
         self._axs = axs
 
     def get_figure(self):
-        return self._figure
+        return self._fig
 
     def get_axis(self):
         return self._axs
 
-    def _manipulate(self, f: Function):
-        return f
-
-    def _space(self, f: Function):
-        return f.get_domain()
-
     def plot_args(self, **kwargs):
         self._plot_args = kwargs
 
+    """
     def plot(self, name, f: Function, **kwargs):
         f = self._manipulate(f)
 
@@ -61,7 +59,51 @@ class FunctionPlotter(object):
 
         self._axs.plot(plot_space, f(plot_space), **self._plot_args, label=name, **kwargs)
         self._axs.legend()
+    """
+
+    def plot(self, name, f: Function, **kwargs):
+
+        x = f.get_domain()
+        y = f.eval()
+
+        plot_function = self._axs.plot
+
+        kwargs['label'] = name
+
+        if f.dx is not None or f.dy is not None:
+            if f.dx is not None and self.plot_dx is True:
+                kwargs['xerr'] = f.dx.eval()
+
+            if f.dy is not None and self.plot_dy is True:
+                kwargs['yerr'] = f.dy.eval()
+
+            plot_function = self._axs.errorbar
+
+        plot_function(x, y, **self._plot_args, **kwargs)
+
+        return self
 
     def show(self):
         plt.show()
 
+
+class FillBetweenPlotter(FunctionPlotter):
+    def _default_args(self):
+        self._plot_args['alpha'] = 0.3
+        self._plot_args['color'] = self.colors[0]
+
+    def plot(self, name, f: Function, f0: Function, f1: Function = None, **kwargs):
+        x = f.get_domain()
+        y = f.eval()
+
+        kwargs['label'] = 'name'
+        if 'color' not in kwargs:
+            kwargs['color'] = self._plot_args['color']
+
+        self._axs.fill_between(x, y, f0(x), **self._plot_args)
+        if f1 is not None:
+            self._axs.fill_between(x, y, f1(x), **self._plot_args)
+
+        self._axs.plot(x, y, **kwargs)
+
+        return self

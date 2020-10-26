@@ -3,11 +3,18 @@ import numpy
 from scipy.integrate import trapz
 
 from skipi.function import Function, evaluate
-
+from skipi.domain import Domain
 
 class FourierTransform(Function):
     @classmethod
-    def to_function(cls, domain, feval, frequency_domain, evenly_spaced=True):
+    def to_function(cls, domain, feval, frequency_domain):
+        #TODO: frequency_domain as Domain?
+
+        #domain = Domain.from_domain(domain)
+        #frequency_domain = Domain.from_domain(frequency_domain)
+
+        #dom = domain.get()
+        #freq_dom = frequency_domain.get()
 
         w = numpy.array(frequency_domain).reshape((len(frequency_domain), 1))
         feval = evaluate(domain, feval)
@@ -16,41 +23,37 @@ class FourierTransform(Function):
 
         integrand = feval * numpy.exp(- 1j * numpy.dot(w, t_domain))
 
-        if evenly_spaced:
-            F = trapz(integrand, dx=cls.get_dx(domain))
-        else:
-            F = trapz(integrand, x=domain)
+        F = trapz(integrand, dx=Domain.get_dx(domain))
 
         return Function.to_function(frequency_domain, F)
 
     @classmethod
     def from_function(cls, frequency_domain, fun: Function):
-        return cls.to_function(fun.get_domain(), fun.get_function(), frequency_domain, fun.is_evenly_spaced())
+        return cls.to_function(fun.get_domain(), fun.get_function(), frequency_domain)
 
 
 class InverseFourierTransform(Function):
     @classmethod
-    def to_function(cls, frequency_domain, feval, x_domain, evenly_spaced=True):
+    def to_function(cls, frequency_domain, feval, x_domain):
+        # TODO: frequency_domain as Domain?
         w = numpy.array(x_domain).reshape((len(x_domain), 1))
         domain = numpy.array(frequency_domain).reshape((1, len(frequency_domain)))
         feval = evaluate(domain, feval)
         integrand = feval * numpy.exp(1j * numpy.dot(w, domain))
-        if evenly_spaced:
-            F = 1 / (2 * numpy.pi) * trapz(integrand, dx=cls.get_dx(frequency_domain))
-        else:
-            F = 1 / (2 * numpy.pi) * trapz(integrand, x=frequency_domain)
+
+        F = 1 / (2 * numpy.pi) * trapz(integrand, dx=Domain.get_dx(frequency_domain))
 
         return Function.to_function(x_domain, F)
 
     @classmethod
     def from_function(cls, x_domain, fun: Function):
-        return cls.to_function(fun.get_domain(), fun.get_function(), x_domain, fun.is_evenly_spaced())
+        return cls.to_function(fun.get_domain(), fun.get_function(), x_domain)
 
 
 class InverseCosineTransform(InverseFourierTransform):
     @classmethod
     def to_function(cls, frequency_domain, feval, x_domain):
-        dx = cls.get_dx(frequency_domain)
+        dx = Domain.get_dx(frequency_domain)
         w = numpy.array(x_domain).reshape((len(x_domain), 1))
         domain = numpy.array(frequency_domain).reshape((1, len(frequency_domain)))
         feval = evaluate(domain, feval)
@@ -62,7 +65,7 @@ class InverseCosineTransform(InverseFourierTransform):
 class CosineTransform(FourierTransform):
     @classmethod
     def to_function(cls, frequency_domain, feval, x_domain):
-        dx = cls.get_dx(frequency_domain)
+        dx = Domain.get_dx(frequency_domain)
         w = numpy.array(x_domain).reshape((len(x_domain), 1))
         domain = numpy.array(frequency_domain).reshape((1, len(frequency_domain)))
         feval = evaluate(domain, feval)

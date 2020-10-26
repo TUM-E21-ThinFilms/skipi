@@ -3,16 +3,23 @@ from skipi.function import Function, FunctionFileLoader
 
 class ReflectivityPlotter(FunctionPlotter):
     def plot(self, name, f: Function, **kwargs):
-        self.axs.plot(f.get_domain(), f.eval(), label=name, **self._plot_args, **kwargs)
+
+        if 'label' not in kwargs:
+            kwargs['label'] = name
+
         self.axs.set_yscale("log")
         self.axs.set_xlabel("q [$\AA^{-1}$]")
         self.axs.set_ylabel("log Intensity [1]")
         self.axs.legend()
 
+        super(ReflectivityPlotter, self).plot(name, f, label=name)
+
+        return self
+
 
 class SLDPlotter(FunctionPlotter):
     def _default_args(self):
-        self._ylabel = "SLD [$\AA^-2$]"
+        self._ylabel = "SLD [$\AA^{-2}$]"
 
     def plot(self, name, f: Function, **kwargs):
         self.axs.plot(f.get_domain(), f.eval(), label=name, **self._plot_args, **kwargs)
@@ -20,6 +27,7 @@ class SLDPlotter(FunctionPlotter):
         self.axs.set_ylabel(self._ylabel)
         self.axs.legend()
 
+        return self
 
 class XRaySLDPlotter(SLDPlotter):
     def _default_args(self):
@@ -41,6 +49,9 @@ class PhasePlotter(FunctionPlotter):
         return lambda x, fx: fx / (100 * x)**2
 
     def plot(self, name, f: Function, **kwargs):
+        if f is None:
+            return
+
         transform = self.transform()
         dy = f.dy
         if self.scale:
@@ -78,6 +89,8 @@ class PhasePlotter(FunctionPlotter):
         self.axs.set_ylabel(ylabel)
         self.axs.legend()
 
+        return self
+
     def _do_plot(self, x, y, color, dy=None, imag=False, **kwargs):
         if dy is None:
             self.axs.plot(x, y, **self._plot_args, color=color, **kwargs)
@@ -108,3 +121,22 @@ class ReflectionFileLoader(FunctionFileLoader):
         if f.dy is not None:
             fun.set_dy(f.dy.transform(transform))
         return fun
+
+class AmorFileLoader(FunctionFileLoader):
+    def from_file(self):
+        from numpy import loadtxt
+        q, R, dq, dR = loadtxt(self._file).T
+
+        f = Function.to_function(q, R)
+        df = Function.to_function(q, dR)
+        dx = Function.to_function(q, dq)
+        f.set_dy(df)
+        f.set_dx(dx)
+        return f
+
+    def to_file(self):
+        raise RuntimeError("Should not write AMOR data files")
+
+class NarzissFileLoader(FunctionFileLoader):
+    def from_file(self):
+        from numpy import loadtxt

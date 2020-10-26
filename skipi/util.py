@@ -93,3 +93,11 @@ def vslice(iterable, *selectors, dstart=0, dstop=0):
     :return:
     """
     return numpy.concatenate([iterable[_vslice(iterable, s, dstart=dstart, dstop=dstop)] for s in selectors])
+
+
+def is_number(other):
+    return (isinstance(other, int) or
+            isinstance(other, float) or
+            isinstance(other, numpy.complex) or
+            isinstance(other, numpy.float) or
+            (isinstance(other, numpy.ndarray) and other.size == 1))
