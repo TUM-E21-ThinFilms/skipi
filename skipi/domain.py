@@ -4,8 +4,11 @@ from typing import List
 
 from skipi.util import is_number, vslice
 
+PRINT_PRECISION = 3
+
+
 class Domain:
-    def __init__(self, x_min: float, x_max: float, npts: int=3):
+    def __init__(self, x_min: float, x_max: float, npts: int = 3):
         self._xmin = x_min
         self._xmax = x_max
         self._npts = npts
@@ -37,7 +40,7 @@ class Domain:
         return self.linear(self._xmin, self._xmax, self._npts)
 
     def respace(self, dx):
-        return Domain(self._xmin, self._xmax, int((self._xmax - self._xmin)/dx) + 1)
+        return Domain(self._xmin, self._xmax, int((self._xmax - self._xmin) / dx) + 1)
 
     def resample(self, npts):
         return Domain(self._xmin, self._xmax, npts)
@@ -65,10 +68,21 @@ class Domain:
         if is_number(other):
             return self.shift(-other)
 
+    def __str__(self):
+        p = str(PRINT_PRECISION)
+        format_str = "[{:." + p + "e}, {:." + p + "e}] @ dx = {:." + p + "e} (#pts = {})"
+        return format_str.format(self._xmin, self._xmax, self.dx(), self._npts)
+
+    def __repr__(self):
+        return self.__str__
+
     @classmethod
     def from_domains(cls, others: List['Domain'], method_or_mesh=None):
         if method_or_mesh is None:
             method_or_mesh = cls.coarse_grid
+
+        if isinstance(method_or_mesh, Domain):
+            return method_or_mesh.get()
 
         if callable(method_or_mesh):
             return method_or_mesh(others)
@@ -83,6 +97,22 @@ class Domain:
 
         if isinstance(domain, Domain):
             return domain
+
+        if callable(domain):
+            return cls.from_domain(domain())
+
+        raise RuntimeError("Unknown type of domain to create a Domain class from")
+
+    @classmethod
+    def as_array(cls, domain):
+        if isinstance(domain, numpy.ndarray):
+            return domain
+
+        if isinstance(domain, Domain):
+            return domain.get()
+
+        if callable(domain):
+            return cls.get_from_domain(domain())
 
         raise RuntimeError("Unknown type of domain to create a Domain class from")
 

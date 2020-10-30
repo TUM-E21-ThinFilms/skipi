@@ -96,14 +96,14 @@ class FillBetweenPlotter(FunctionPlotter):
         x = f.get_domain()
         y = f.eval()
 
-        kwargs['label'] = 'name'
-        if 'color' not in kwargs:
-            kwargs['color'] = self._plot_args['color']
+        kwargs['label'] = name
+        if 'color' in kwargs:
+            self._plot_args['color'] = kwargs['color']
 
         self._axs.fill_between(x, y, f0(x), **self._plot_args)
         if f1 is not None:
             self._axs.fill_between(x, y, f1(x), **self._plot_args)
 
-        self._axs.plot(x, y, **kwargs)
+        super(FillBetweenPlotter, self).plot(name, f, **kwargs)
 
         return self

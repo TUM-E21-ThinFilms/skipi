@@ -5,7 +5,7 @@ from typing import Callable
 
 from scipy.integrate import trapz
 
-from skipi.util import vslice, is_number
+from skipi.util import is_number
 from skipi.domain import Domain
 
 FUNCTION_INTERPOLATION_TYPE = 'linear'
@@ -29,12 +29,14 @@ class Function(object):
     >>> f ** g, f ** 3
 
     Composition is also possible:
+
     :Example:
     >>> f.apply(g) == g(f) # Use this if g is a build-in function, like abs
     >>> f.composeWith(g) == f(g)
     >>> g.composeWith(f) == g(f) # This is only possible if g is a Function
 
-    Plotting is done
+    Plotting is done via
+
     :Example:
     >>> f.plot() # plots f on the whole domain (f.get_domain())
     >>> g.plot(domain, show=True) # plots g on domain
@@ -139,8 +141,13 @@ class Function(object):
 
         :return:
         """
+
+        dx = self._dx.reinterpolate(interpolation_kind) if self._dx else None
+        dy = self._dy.reinterpolate(interpolation_kind) if self._dy else None
+
         return self.__class__(self._domain,
-                              to_function(self.get_domain(), self._f, interpolation=interpolation_kind))
+                              to_function(self.get_domain(), self._f, interpolation=interpolation_kind),
+                              dx=dx, dy=dy)
 
     def shift(self, offset, domain=False):
         """
@@ -548,73 +555,6 @@ class ComplexFunction(Function):
         return real_part + imaginary_part * 1j
 
 
-class MaxOfFunctions(Function):
-    @classmethod
-    def from_functions(cls, functions: [Function]):
-        return Function.to_function(functions[0].get_dom(), lambda x: numpy.max([f(x) for f in functions]))
-
-
-class MinOfFunctions(Function):
-    @classmethod
-    def from_functions(cls, functions: [Function]):
-        return Function.to_function(functions[0].get_dom(), lambda x: numpy.min([f(x) for f in functions]))
-
-
-class DrawFromFunction(Function):
-    @classmethod
-    def from_function(cls, function: Function):
-        dy = function.dy
-        if dy is None:
-            return function
-
-        feval_real = numpy.random.normal(function.eval().real, dy.eval().real)
-
-        if function.is_complex():
-            feval_imag = numpy.random.normal(function.eval().imag, dy.eval().imag)
-            return Function.to_function(function.get_dom(), feval_real + 1j * feval_imag)
-
-        return Function.to_function(function.get_dom(), feval_real)
-
-
-class ComputeStandardDeviation(Function):
-    @classmethod
-    def from_functions(cls, functions: [Function], domain=None, std_fun=None):
-        """
-        Computes the standard deviation (pointwise) using all functions
-
-        If domain is None, the domain from the first function will be used
-
-        If std_fun is None, the "complex" standard deviation will be used, see the method cstd.
-
-
-        :param functions: A list of functions from which the std should be calculated
-        :param domain: A domain
-        :param std_fun: A function calculating the std
-        :return: new Function
-        """
-        if domain is None:
-            domain = functions[0].get_domain()
-
-        if std_fun is None:
-            std_fun = cls.cstd
-
-        return Function.to_function(domain, lambda x: std_fun([f(x) for f in functions]))
-
-    @staticmethod
-    def cstd(complexs):
-        """
-        Calculates the standard deviation of a complex number by splitting it into the real and imaginary
-        part, resulting in a complex standard deviation:
-
-            cstd(complex) = std(complex.real) + 1j*std(complex.imag).
-
-        :param complexs:
-        :return:
-        """
-        complexs = numpy.array(complexs)
-        return numpy.std(complexs.real) + 1j*numpy.std(complexs.imag)
-
-
 class Integral(Function):
     @classmethod
     def to_function(cls, domain, feval, C=0, **kwargs):
@@ -765,8 +705,7 @@ def to_function(x_space, feval, interpolation=None, to_zero=True):
         global FUNCTION_INTERPOLATION_TYPE
         interpolation = FUNCTION_INTERPOLATION_TYPE
 
-    if isinstance(x_space, Domain):
-        x_space = x_space.get()
+    x_space = Domain.as_array(x_space)
 
     if callable(feval):
         feval = numpy.array([feval(x) for x in x_space])
