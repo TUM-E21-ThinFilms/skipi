@@ -6,12 +6,11 @@ from skipi.util import is_number, vslice
 
 PRINT_PRECISION = 3
 
-
 class Domain:
     def __init__(self, x_min: float, x_max: float, npts: int = 3):
         self._xmin = x_min
         self._xmax = x_max
-        self._npts = npts
+        self._npts = int(npts)
 
         self._dom = None
 
@@ -27,10 +26,16 @@ class Domain:
     def max(self):
         return self._xmax
 
+    def limits(self):
+        return self.min(), self.max()
+
     def length(self):
         return self._xmax - self._xmin
 
     def points(self):
+        return self._npts
+
+    def len(self):
         return self._npts
 
     def dx(self):
@@ -60,6 +65,16 @@ class Domain:
     def vremesh(self, *selector, dstart=0, dstop=0):
         return Domain.from_domain(vslice(self.get(), *selector, dstart=dstart, dstop=dstop))
 
+    def idx(self, items):
+        items = numpy.array(items)
+        idxs = numpy.array((items - self._xmin) / self.dx(), dtype=int)
+        sel = numpy.bitwise_and(self._xmin <= items, items < self._xmax)
+
+        return idxs, sel
+
+    def array(self, empty_value=0):
+        return numpy.full((self.len()), empty_value, dtype=float)
+
     def __add__(self, other):
         if is_number(other):
             return self.shift(other)
@@ -74,7 +89,16 @@ class Domain:
         return format_str.format(self._xmin, self._xmax, self.dx(), self._npts)
 
     def __repr__(self):
-        return self.__str__
+        return self.__str__()
+
+    def __contains__(self, item):
+        return self._xmin <= item < self._xmax
+
+    def __iter__(self):
+        return iter(self.get())
+
+    def __len__(self):
+        return self.len()
 
     @classmethod
     def from_domains(cls, others: List['Domain'], method_or_mesh=None):
@@ -120,17 +144,9 @@ class Domain:
     def linear(cls, x_min, x_max, npts):
         return numpy.linspace(x_min, x_max, npts)
 
-    # TODO: implement iterator
-
-    def __iter__(self):
-        dom = self.get()
-        return iter(dom)
-
-    def __len__(self):
-        return self.len()
-
-    def len(self):
-        return self._npts
+    @classmethod
+    def from_spacing(cls, x_min, x_max, dx):
+        return Domain(x_min, x_max, int((x_max - x_min) / dx) + 1)
 
     @classmethod
     def get_dx(self, grid):
@@ -154,3 +170,33 @@ class Domain:
     def coarse_grid(self, grids: List):
         dx = max(map(self.get_dx, grids))
         return self.grid(grids, dx)
+
+
+class Domain2D(object):
+    def __init__(self, dom_x: Domain, dom_y: Domain):
+        self._domx = dom_x
+        self._domy = dom_y
+
+    def dx(self):
+        return self._domx.dx()
+
+    def dy(self):
+        return self._domy.dx()
+
+    def points(self):
+        return self._domx.points() * self._domy.points()
+
+    def get(self):
+        return numpy.meshgrid(self._domx.get(), self._domy.get())
+
+    def array(self, empty_value=0):
+        return numpy.full((len(self._domx), len(self._domy)), empty_value, dtype=float)
+
+    def transpose(self):
+        return Domain2D(self._domy, self._domx)
+
+    def idx(self, items_x, items_y):
+        x_idx, x_sel = self._domx.idx(items_x)
+        y_idx, y_sel = self._domy.idx(items_y)
+
+        return x_idx, y_idx, numpy.bitwise_and(x_sel, y_sel)

@@ -376,7 +376,7 @@ class Function(object):
         """
         Remeshes the grid/domain using vslice.
 
-        Particularly useful if you want to restrict you function
+        Particularly useful if you want to restrict your function
 
         :Example:
         >>> f.vremesh((None, None)) # does nothing in principle
