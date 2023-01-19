@@ -47,6 +47,17 @@ class Domain:
     def respace(self, dx):
         return Domain(self._xmin, self._xmax, int((self._xmax - self._xmin) / dx) + 1)
 
+    def extend(self, xmin=None, xmax=None):
+        dx = self.dx()
+        new_xmin, new_xmax = self._xmin, self._xmax
+        if xmin < self._xmin:
+            new_xmin = self._xmin - ((self._xmin - xmin) // dx) * dx
+
+        if xmax > self._xmax:
+            new_xmax = self._xmax + ((xmax - self._xmax) // dx) * dx
+
+        return Domain.from_spacing(new_xmin, new_xmax, dx)
+
     def resample(self, npts):
         return Domain(self._xmin, self._xmax, npts)
 
@@ -189,6 +200,11 @@ class Domain:
     @classmethod
     def from_spacing(cls, x_min, x_max, dx):
         return Domain(x_min, x_max, (x_max - x_min) / dx + 1)
+
+    @classmethod
+    def from_array(cls, values):
+        values = numpy.array(values)
+        return Domain(values.min(), values.max(), len(values))
 
     @classmethod
     def get_dx(self, grid):
