@@ -64,7 +64,7 @@ def _vslice(array, selector, dstart=0, dstop=0):
 
 def islice(iterable, *selectors):
     """
-    Slices a iterable using selectors and concatenates the result
+    Slices an iterable using selectors and concatenates the result
 
     :param iterable:
     :param selectors:

@@ -22,6 +22,14 @@ def Lp(f: Function, p=2, domain=None):
 
     return Integral.integrate((f.abs()) ** p) ** (1 / p)
 
+def lp(f: Function, p=2, domain=None):
+    assert 1 <= p
+
+    if domain is None:
+        domain = f.get_domain()
+
+    return sum(( f.abs()(domain) ** p) ** (1 / p))
+
 def sup(f: Function, domain=None):
     if domain is None:
         domain = f.get_domain()

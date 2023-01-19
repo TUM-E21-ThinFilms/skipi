@@ -100,6 +100,48 @@ class Domain:
     def __len__(self):
         return self.len()
 
+    def __lt__(self, other):
+        if isinstance(other, Domain):
+            return  self.min() < other.min()
+        elif is_number(other):
+            return self.min() < other
+        else:
+            raise RuntimeError("Unknown type to compare domain with")
+
+    def __gt__(self, other):
+        if isinstance(other, Domain):
+            return  self.max() > other.max()
+        elif is_number(other):
+            return self.max() > other
+        else:
+            raise RuntimeError("Unknown type to compare domain with")
+
+    def has_intersection(self, domain):
+        _min = max(self.min(), domain.min())
+        _max = min(self.max(), domain.max())
+
+        if _min > _max:
+            return False
+        return True
+
+    def intersect(self, domain):
+        _min = max(self.min(), domain.min())
+        _max = min(self.max(), domain.max())
+
+        if _min > _max:
+            raise RuntimeError("Intersection is the empty set")
+
+        return self.vremesh((_min, _max))
+
+    def unite(self, domain):
+        _min = min(self.min(), domain.min())
+        _max = max(self.max(), domain.max())
+
+        if not self.has_intersection(domain):
+            raise RuntimeError("Intersection is the empty set")
+
+        return Domain.from_spacing(_min, _max, self.dx())
+
     @classmethod
     def from_domains(cls, others: List['Domain'], method_or_mesh=None):
         if method_or_mesh is None:
@@ -146,7 +188,7 @@ class Domain:
 
     @classmethod
     def from_spacing(cls, x_min, x_max, dx):
-        return Domain(x_min, x_max, int((x_max - x_min) / dx) + 1)
+        return Domain(x_min, x_max, (x_max - x_min) / dx + 1)
 
     @classmethod
     def get_dx(self, grid):
@@ -156,20 +198,32 @@ class Domain:
         return grid[1] - grid[0]
 
     @classmethod
-    def grid(self, grids, dx):
+    def grid(cls, grids, dx):
         x_min = min(map(lambda x: x.min(), grids))
         x_max = max(map(lambda x: x.max(), grids))
-        return Domain(x_min, x_max, int((x_max - x_min) / dx) + 1)
+        return cls.from_spacing(x_min, x_max, dx)
 
     @classmethod
-    def fine_grid(self, grids: List):
-        dx = min(map(self.get_dx, grids))
-        return self.grid(grids, dx)
+    def fine_grid(cls, grids: List):
+        dx = min(map(cls.get_dx, grids))
+        return cls.grid(grids, dx)
 
     @classmethod
-    def coarse_grid(self, grids: List):
-        dx = max(map(self.get_dx, grids))
-        return self.grid(grids, dx)
+    def coarse_grid(cls, grids: List):
+        dx = max(map(cls.get_dx, grids))
+        return cls.grid(grids, dx)
+
+
+class IntersectionDomain(Domain):
+    @classmethod
+    def from_domains(cls):
+        pass
+
+
+class UnionDomain(Domain):
+    @classmethod
+    def from_domains(cls):
+        pass
 
 
 class Domain2D(object):

@@ -1,6 +1,5 @@
 from skipi.function import Function, NullFunction
 
-
 class ErrorFunction(object):
     def __init__(self, f: Function, x_error: Function = None, y_error: Function = None):
 

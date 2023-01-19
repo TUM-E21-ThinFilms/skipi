@@ -60,8 +60,9 @@ class Function(object):
         :param domain: list of points where the function is defined, equidistantly spaced!
         :param fun_callable: callable function to evaluate this Function.
         """
-
-        if isinstance(domain, Domain):
+        if isinstance(domain, Function):
+            self._domain = domain.get_dom()
+        elif isinstance(domain, Domain):
             self._domain = domain
         else:
             self._domain = Domain.from_domain(domain)
@@ -324,7 +325,12 @@ class Function(object):
     def get_function(self):
         return self._f
 
+    def callable(self):
+        return self._f
+
     def __call__(self, x):
+        if isinstance(x, Domain):
+            return self._f(x.get())
         return self._f(x)
 
     @classmethod
@@ -639,6 +645,32 @@ class PiecewiseFunction(Function):
 
         return Function(domain, feval)
 
+class ExtendableFunction(Function):
+    def extend(self, extension):
+        if not self.get_dom().has_intersection(extension.get_dom()):
+            raise RuntimeError("Cannot extend function if the domains have an empty intersection")
+
+        new_domain = self.get_dom().unite(extension.get_dom())
+
+        doml, domc, domr = [], [], []
+        feval_l, feval_c, feval_r = [], [], []
+
+        domc = new_domain.vremesh((self.get_dom().min(), self.get_dom().max()))
+        feval_c = self(domc)
+
+        if extension.get_dom() < self.get_dom():
+            doml = new_domain.vremesh((None, self.get_dom().min()))
+            feval_l = extension(doml)
+
+        if extension.get_dom() > self.get_dom():
+            #doml = new_domain.vremesh((None, self.get_dom().max()))
+            domr = new_domain.vremesh((self.get_dom().max(), None))
+
+            #feval_l = self(doml)
+            feval_r = extension(domr)
+
+        return Function.to_function(new_domain, numpy.concatenate((feval_l, feval_c, feval_r)))
+
 
 class StitchedFunction(Function):
     @classmethod
@@ -650,7 +682,6 @@ class StitchedFunction(Function):
         conditional = lambda x: x < right_domain
 
         return PiecewiseFunction.from_function(domain, left, conditional, right)
-
 
 def evaluate(domain, function):
     """
@@ -669,7 +700,10 @@ def evaluate(domain, function):
         domain = domain.get()
 
     if callable(function):
-        return numpy.array([function(x) for x in domain])
+        try:
+            return numpy.array(function(domain))
+        except:
+            return numpy.array([function(x) for x in domain])
     elif isinstance(function, numpy.ndarray) and len(domain) == len(function):
         return function
     elif isinstance(function, list) and len(domain) == len(function):
@@ -708,7 +742,10 @@ def to_function(x_space, feval, interpolation=None, to_zero=True):
     x_space = Domain.as_array(x_space)
 
     if callable(feval):
-        feval = numpy.array([feval(x) for x in x_space])
+        if isinstance(feval(x_space[0]), numpy.ndarray):
+            feval = feval(x_space)
+        else:
+            feval = numpy.array([feval(x) for x in x_space])
 
     if len(x_space) == 0:
         return lambda x: 0
@@ -754,7 +791,7 @@ class FunctionFileLoader:
 
         This can read files of the row-form:
             - x f(x).real f(x).imag
-            - X f(x).real df(x).real f(x).imag df(x).imag
+            - x f(x).real df(x).real f(x).imag df(x).imag
             - x f(x).real
             - x f(x).real df(x).real
 

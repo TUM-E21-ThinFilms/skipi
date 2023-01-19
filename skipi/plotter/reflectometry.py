@@ -140,3 +140,15 @@ class AmorFileLoader(FunctionFileLoader):
 class NarzissFileLoader(FunctionFileLoader):
     def from_file(self):
         from numpy import loadtxt
+
+class UXDConverterFileLoader(FunctionFileLoader):
+    def from_file(self):
+        from numpy import loadtxt
+        theta, dTheta, R, dR = loadtxt(self._file).T
+
+        f = Function.to_function(theta, R)
+        df = Function.to_function(theta, dR)
+        dx = Function.to_function(theta, dTheta)
+        f.set_dy(df)
+        f.set_dx(dx)
+        return f
