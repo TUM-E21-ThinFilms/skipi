@@ -1,9 +1,11 @@
 import numpy
+import lmfit
 import scipy.interpolate
 
 from typing import Callable
-
 from scipy.integrate import trapz
+
+from lmfit.model import ModelResult
 
 from skipi.util import is_number
 from skipi.domain import Domain
@@ -179,7 +181,7 @@ class Function(object):
         """
         f = self._f
 
-        dx = self._dx.scale_domain(factor) if self._dx else None
+        dx = self._dx.scale_domain(factor) * factor if self._dx else None
         dy = self._dy.scale_domain(factor) if self._dy else None
 
         return self.__class__(self._domain.scale(factor), lambda x: f(x / factor), dx=dx, dy=dy)
@@ -241,6 +243,14 @@ class Function(object):
 
         f = self._f
         return self.__class__(self._domain, lambda x: f(x0 - x), dx=dx, dy=dy)
+
+    #def fit(self, fit_function, abscissa='x', **kwargs):
+    #    kwargs[abscissa] = self.get_domain()
+    #    return lmfit.Model(fit_function).fit(self.eval(), **kwargs)
+
+    #def fitFunction(self, fit_function, **kwargs):
+    #    fit_result = self.fit(fit_function, **kwargs)
+    #    return Function.to_function(self.get_domain(), fit_result.best_fit)
 
     def conj(self):
         """
@@ -412,57 +422,65 @@ class Function(object):
 
     def __add__(self, other):
         if isinstance(other, Function):
-            return self.__class__(self._domain, lambda x: self._f(x) + other.get_function()(x))
+            return self.__class__(self._domain, lambda x: self._f(x) + other.get_function()(x), dx=self.dx)
         if callable(other):
-            return self.__class__(self._domain, lambda x: self._f(x) + other(x))
+            return self.__class__(self._domain, lambda x: self._f(x) + other(x), dx=self.dx)
         if is_number(other):
-            return self.__class__(self._domain, lambda x: self._f(x) + other)
+            return self.__class__(self._domain, lambda x: self._f(x) + other, dx=self.dx, dy=self.dy)
 
         self._unknown_type(other)
 
     def __sub__(self, other):
         if isinstance(other, Function):
-            return self.__class__(self._domain, lambda x: self._f(x) - other.get_function()(x))
+            return self.__class__(self._domain, lambda x: self._f(x) - other.get_function()(x), dx=self.dx)
         if callable(other):
-            return self.__class__(self._domain, lambda x: self._f(x) - other(x))
+            return self.__class__(self._domain, lambda x: self._f(x) - other(x), dx=self.dx)
         if is_number(other):
-            return self.__class__(self._domain, lambda x: self._f(x) - other)
+            return self.__class__(self._domain, lambda x: self._f(x) - other, dx=self.dx, dy=self.dy)
 
         self._unknown_type(other)
 
     def __pow__(self, power):
+        if power == 1:
+            return self
         if isinstance(power, Function):
-            return self.__class__(self._domain, lambda x: self._f(x) ** power.get_function()(x))
+            return self.__class__(self._domain, lambda x: self._f(x) ** power.get_function()(x), dx=self.dx)
         if callable(power):
-            return self.__class__(self._domain, lambda x: self._f(x) ** power(x))
+            return self.__class__(self._domain, lambda x: self._f(x) ** power(x), dx=self.dx)
         if is_number(power):
-            return self.__class__(self._domain, lambda x: self._f(x) ** power)
+            dy = power * self._f ** (power - 1) * self._dy if self._dy is not None else None
+            return self.__class__(self._domain, lambda x: self._f(x) ** power, dx=self.dx, dy=dy)
 
         self._unknown_type(power)
 
     def __mul__(self, other):
         if isinstance(other, Function):
-            return self.__class__(self._domain, lambda x: self._f(x) * other.get_function()(x))
+            return self.__class__(self._domain, lambda x: self._f(x) * other.get_function()(x), dx=self.dx)
         if callable(other):
-            return self.__class__(self._domain, lambda x: self._f(x) * other(x))
+            return self.__class__(self._domain, lambda x: self._f(x) * other(x), dx=self.dx)
         if is_number(other):
-            return self.__class__(self._domain, lambda x: self._f(x) * other)
+            dy = self.dy * other if self.dy is not None else None
+            return self.__class__(self._domain, lambda x: self._f(x) * other, dx=self.dx, dy=dy)
 
         self._unknown_type(other)
 
     def __truediv__(self, other):
+        if other == 0:
+            raise RuntimeError("Cannot divide by zero")
+
         if isinstance(other, Function):
-            return self.__class__(self._domain, lambda x: self._f(x) / other.get_function()(x))
+            return self.__class__(self._domain, lambda x: self._f(x) / other.get_function()(x), dx=self.dx)
         if callable(other):
-            return self.__class__(self._domain, lambda x: self._f(x) / other(x))
+            return self.__class__(self._domain, lambda x: self._f(x) / other(x), dx=self.dx)
         if is_number(other):
-            return self.__class__(self._domain, lambda x: self._f(x) / other)
+            dy = self.dy / other if self.dy is not None else None
+            return self.__class__(self._domain, lambda x: self._f(x) / other, dx=self.dx, dy=dy)
 
         self._unknown_type(other)
 
     def __neg__(self):
         f = self._f
-        return self.__class__(self._domain, lambda x: -f(x))
+        return self.__class__(self._domain, lambda x: -f(x), dy=self.dy, dx=self.dx)
 
     def plot(self, plot_space=None, show=False, real=True, **kwargs):
         import pylab
@@ -652,7 +670,7 @@ class ExtendableFunction(Function):
 
         new_domain = self.get_dom().unite(extension.get_dom())
 
-        doml, domc, domr = [], [], []
+        #doml, domc, domr = [], [], []
         feval_l, feval_c, feval_r = [], [], []
 
         domc = new_domain.vremesh((self.get_dom().min(), self.get_dom().max()))
@@ -663,10 +681,7 @@ class ExtendableFunction(Function):
             feval_l = extension(doml)
 
         if extension.get_dom() > self.get_dom():
-            #doml = new_domain.vremesh((None, self.get_dom().max()))
             domr = new_domain.vremesh((self.get_dom().max(), None))
-
-            #feval_l = self(doml)
             feval_r = extension(domr)
 
         return Function.to_function(new_domain, numpy.concatenate((feval_l, feval_c, feval_r)))
@@ -682,6 +697,25 @@ class StitchedFunction(Function):
         conditional = lambda x: x < right_domain
 
         return PiecewiseFunction.from_function(domain, left, conditional, right)
+
+class FittedFunction(Function):
+    def __init__(self, domain: Domain, fun_callable: Callable, dy: 'Function' = None,
+                 dx: 'Function' = None, fit: lmfit.model.ModelResult = None):
+        super().__init__(domain, fun_callable, dy, dx)
+        self._fit = fit
+
+    @property
+    def fit(self) -> lmfit.model.ModelResult:
+        return self._fit
+
+    @classmethod
+    def from_fit(cls, f: Function, fit_function: Callable, abscissa='x', **kwargs):
+        weights = 1/f.dy.eval() if f.dy is not None else None
+        kwargs[abscissa] = f.get_domain()
+        fit_result = lmfit.Model(fit_function).fit(f.eval(), weights=weights, **kwargs)
+        fitted_function = to_function(f.get_domain(), fit_result.best_fit)
+        return cls(f.get_dom(), fitted_function, dx=f.dx, dy=f.dy, fit=fit_result)
+
 
 def evaluate(domain, function):
     """
