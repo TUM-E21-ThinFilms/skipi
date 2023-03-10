@@ -98,6 +98,5 @@ def vslice(iterable, *selectors, dstart=0, dstop=0):
 def is_number(other):
     return (isinstance(other, int) or
             isinstance(other, float) or
-            isinstance(other, numpy.complex) or
-            isinstance(other, numpy.float) or
+            isinstance(other, complex) or
             (isinstance(other, numpy.ndarray) and other.size == 1))

@@ -563,6 +563,42 @@ class Function(object):
     def lp_metric(self, p=2):
         return numpy.sum(numpy.power(self.eval(), p))
 
+class InverseFunction(Function):
+    @classmethod
+    def from_function(cls, f: Function, at=None):
+
+        if at is None:
+            at = f.get_dom().min()
+
+        idx, sel = f.get_dom().idx([at])
+        idx, sel = idx[0], sel[0]
+
+        if sel is False:
+            raise RuntimeError("Given inversion point is not an element of the function's domain")
+
+        diffs = numpy.diff(f.eval())
+
+        if idx >= len(diffs):
+            idx = len(diffs) - 1
+
+        if diffs[idx] == 0:
+            raise RuntimeError("Cannot invert a function at its saddle point")
+
+        parity = +1 if diffs[idx] > 0 else -1
+
+        if parity == 1:
+            search = diffs <= 0
+        else:
+            search = diffs >= 0
+
+        ridx = next((i for i, val in enumerate(search[idx:]) if val == True), len(diffs)-idx) + idx + 1
+        lidx = idx - next((i for i, val in enumerate(reversed(search[:idx])) if val == True), idx)
+
+        # A sufficient condition for the inverse to exist is that the function has to be strictly monotonic
+        domain = f.get_domain()[lidx:ridx]
+
+        return cls.to_function(f(domain), domain)
+
 
 class NullFunction(Function):
     def __init__(self, domain):
